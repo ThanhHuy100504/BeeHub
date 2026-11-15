@@ -223,6 +223,7 @@ export default function ProviderDashboardPage() {
                 </p>
                 {myShared.map((group) => {
                   const isExpanded = expandedGroupId === group.id;
+                  const firstOrderId = group.orders?.[0]?.id;
                   return (
                     <div
                       key={group.id}
@@ -230,7 +231,7 @@ export default function ProviderDashboardPage() {
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-bold text-white">
                               #{group.group_code}
                             </span>
@@ -243,17 +244,28 @@ export default function ProviderDashboardPage() {
                             Lộ trình: {group.route_summary || `${group.pickup_district} ➔ ${group.delivery_district}`}
                           </p>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <span className="text-xs text-gray-500">Tổng thu nhập chuyến:</span>
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <div className="text-right mr-1">
+                            <span className="text-xs text-gray-500 block">Tổng thu nhập chuyến:</span>
                             <p className="text-base font-bold text-blue-700">{formatVND(group.total_payout)}</p>
                           </div>
+                          {firstOrderId && (
+                            <Link href={`/orders/${firstOrderId}`}>
+                              <button
+                                type="button"
+                                className="rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition-colors"
+                              >
+                                Xem chi tiết chuyến
+                              </button>
+                            </Link>
+                          )}
                           <button
                             type="button"
                             onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
-                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-blue-200 bg-white text-blue-600 hover:bg-blue-50"
+                            className="flex items-center gap-1 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50"
                           >
-                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            <span>{isExpanded ? "Thu gọn" : `Các đơn (${group.orders.length})`}</span>
+                            {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                           </button>
                         </div>
                       </div>
@@ -261,7 +273,7 @@ export default function ProviderDashboardPage() {
                       {isExpanded && (
                         <div className="mt-4 border-t border-blue-100 pt-3">
                           <p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">
-                            Danh sách các đơn sinh viên trong chuyến:
+                            Danh sách các đơn sinh viên trong chuyến ({group.orders.length} người đặt):
                           </p>
                           <div className="space-y-2">
                             {group.orders.map((o, idx) => (
@@ -287,7 +299,7 @@ export default function ProviderDashboardPage() {
                                   <span className="font-bold text-gray-900">{formatVND(o.total_price)}</span>
                                   <Link href={`/orders/${o.id}`}>
                                     <button className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-100">
-                                      Chi tiết
+                                      Xem chi tiết
                                     </button>
                                   </Link>
                                 </div>
@@ -311,6 +323,7 @@ export default function ProviderDashboardPage() {
                 {availableShared.map((group) => {
                   const isExpanded = expandedGroupId === group.id;
                   const isAccepting = acceptingGroupId === group.id;
+                  const firstOrderId = group.orders?.[0]?.id;
                   return (
                     <div
                       key={group.id}
@@ -318,7 +331,7 @@ export default function ProviderDashboardPage() {
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
                               #{group.group_code}
                             </span>
@@ -335,8 +348,8 @@ export default function ProviderDashboardPage() {
                           </p>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-3">
-                          <div className="text-right">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <div className="text-right mr-1">
                             <span className="text-[11px] text-gray-400 block">Tổng thu nhập:</span>
                             <span className="text-lg font-bold text-emerald-600">
                               {formatVND(group.total_payout)}
@@ -346,11 +359,23 @@ export default function ProviderDashboardPage() {
                           <button
                             type="button"
                             onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
-                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                            className="flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100"
                             title="Xem lộ trình các đơn"
                           >
-                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            <span>{isExpanded ? "Thu gọn" : `Các đơn (${group.orders.length})`}</span>
+                            {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                           </button>
+
+                          {firstOrderId && (
+                            <Link href={`/orders/${firstOrderId}`}>
+                              <button
+                                type="button"
+                                className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                              >
+                                Xem chi tiết chuyến
+                              </button>
+                            </Link>
+                          )}
 
                           <button
                             type="button"
@@ -373,7 +398,7 @@ export default function ProviderDashboardPage() {
                             {group.orders.map((o, idx) => (
                               <div
                                 key={o.id}
-                                className="flex flex-col gap-1 rounded-xl bg-gray-50 p-3 text-xs sm:flex-row sm:items-center sm:justify-between"
+                                className="flex flex-col gap-2 rounded-xl bg-gray-50 p-3 text-xs sm:flex-row sm:items-center sm:justify-between"
                               >
                                 <div>
                                   <div className="flex items-center gap-2">
@@ -391,9 +416,19 @@ export default function ProviderDashboardPage() {
                                     <span className="font-semibold text-blue-600">Giao:</span> {o.delivery_address}
                                   </p>
                                 </div>
-                                <div className="text-right">
-                                  <span className="font-bold text-emerald-600">{formatVND(o.total_price)}</span>
-                                  <p className="text-[10px] text-gray-400">Cọc: {formatVND(o.deposit_amount)}</p>
+                                <div className="flex items-center gap-3 self-end sm:self-center">
+                                  <div className="text-right">
+                                    <span className="font-bold text-emerald-600">{formatVND(o.total_price)}</span>
+                                    <p className="text-[10px] text-gray-400">Cọc: {formatVND(o.deposit_amount)}</p>
+                                  </div>
+                                  <Link href={`/orders/${o.id}`}>
+                                    <button
+                                      type="button"
+                                      className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                    >
+                                      Xem chi tiết
+                                    </button>
+                                  </Link>
                                 </div>
                               </div>
                             ))}
