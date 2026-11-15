@@ -1,0 +1,51 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
+
+import 'core/router/app_router.dart';
+import 'core/theme/flex_beehub_theme.dart';
+import 'core/theme/shad_beehub_theme.dart';
+import 'core/theme/theme_mode_cubit.dart';
+import 'features/booking/presentation/cubit/booking_flow_cubit.dart';
+
+class BeeHubApp extends StatelessWidget {
+  const BeeHubApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ScreenUtilInit(
+      designSize: const Size(390, 844),
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, _) {
+        return MultiBlocProvider(
+          providers: [
+            BlocProvider(create: (_) => ThemeModeCubit()),
+            BlocProvider(create: (_) => BookingFlowCubit()),
+          ],
+          child: BlocBuilder<ThemeModeCubit, ThemeMode>(
+            builder: (context, mode) {
+              return MaterialApp.router(
+                title: 'BeeHub',
+                debugShowCheckedModeBanner: false,
+                theme: FlexBeeHubTheme.material(isDark: false),
+                darkTheme: FlexBeeHubTheme.material(isDark: true),
+                themeMode: mode,
+                routerConfig: AppRouter.router,
+                builder: (context, child) {
+                  return ShadTheme(
+                    data: BeeHubShadTheme.forThemeMode(mode),
+                    child: ShadToaster(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}

@@ -1,0 +1,76 @@
+.container { width: 100%; min-width: 0; overflow-x: auto; }
+@media (min-width: 1024px) {
+  .container > table { min-width: 900px; }
+}
+@media (max-width: 1023px) {
+  .container { overflow: visible; }
+  .container > table { display: block; width: 100%; min-width: 0; }
+  /* Retain column headers for assistive technology. */
+  .container > table > thead {
+    position: absolute; width: 1px; height: 1px; padding: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .container > table > tbody { display: block; }
+  .container > table > tbody > tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px; padding: 16px; border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+  .container > table > tbody > tr:last-child { border-bottom: 0; }
+  .container > table > tbody > tr > td {
+    display: block; position: static; width: auto; min-width: 0; max-width: none;
+    padding: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere;
+    text-align: left; box-shadow: none;
+  }
+  .container td::before {
+    display: block; margin-bottom: 6px; color: var(--muted);
+    font-family: inherit; font-size: 12px; font-weight: 400;
+  }
+  .container td:last-child, .container td[colspan] { grid-column: 1 / -1; }
+  .container td[colspan]::before { content: none !important; }
+  .container td :global(.truncate) {
+    white-space: normal; overflow: visible; max-width: 100%; overflow-wrap: anywhere;
+  }
+  .container td > div { min-width: 0; max-width: 100%; }
+  .container td > :global(.flex) { flex-wrap: wrap; }
+  .container td button, .container td a {
+    min-height: 44px; display: inline-flex; align-items: center;
+    justify-content: center; max-width: 100%; white-space: normal;
+  }
+  .container td button { min-width: 44px; }
+  .container td:nth-child(1)::before { content: var(--column-1-label); }
+  .container td:nth-child(2)::before { content: var(--column-2-label); }
+  .container td:nth-child(3)::before { content: var(--column-3-label); }
+  .container td:nth-child(4)::before { content: var(--column-4-label); }
+  .container td:nth-child(5)::before { content: var(--column-5-label); }
+  .container td:nth-child(6)::before { content: var(--column-6-label); }
+  .container td:nth-child(7)::before { content: var(--column-7-label); }
+  .container td:nth-child(8)::before { content: var(--column-8-label); }
+  .container td:nth-child(9)::before { content: var(--column-9-label); }
+  .container td:nth-child(10)::before { content: var(--column-10-label); }
+  .container td:nth-child(11)::before { content: var(--column-11-label); }
+  .container td:nth-child(12)::before { content: var(--column-12-label); }
+  .container td:nth-child(13)::before { content: var(--column-13-label); }
+  .container td:nth-child(14)::before { content: var(--column-14-label); }
+  .container td:nth-child(15)::before { content: var(--column-15-label); }
+  .container td:nth-child(16)::before { content: var(--column-16-label); }
+  .container[data-index-column="true"] td:first-child { display: none; }
+  .container td :global(.whitespace-nowrap) { white-space: normal; }
+  .container td:nth-child(1) { grid-column: var(--column-1-span, span 1); }
+  .container td:nth-child(2) { grid-column: var(--column-2-span, span 1); }
+  .container td:nth-child(3) { grid-column: var(--column-3-span, span 1); }
+  .container td:nth-child(4) { grid-column: var(--column-4-span, span 1); }
+  .container td:nth-child(5) { grid-column: var(--column-5-span, span 1); }
+  .container td:nth-child(6) { grid-column: var(--column-6-span, span 1); }
+  .container td:nth-child(7) { grid-column: var(--column-7-span, span 1); }
+  .container td:nth-child(8) { grid-column: var(--column-8-span, span 1); }
+  .container td:nth-child(9) { grid-column: var(--column-9-span, span 1); }
+  .container td:nth-child(10) { grid-column: var(--column-10-span, span 1); }
+  .container td:nth-child(11) { grid-column: var(--column-11-span, span 1); }
+  .container td:nth-child(12) { grid-column: var(--column-12-span, span 1); }
+  .container td:nth-child(13) { grid-column: var(--column-13-span, span 1); }
+  .container td:nth-child(14) { grid-column: var(--column-14-span, span 1); }
+  .container td:nth-child(15) { grid-column: var(--column-15-span, span 1); }
+  .container td:nth-child(16) { grid-column: var(--column-16-span, span 1); }
+  .container td:last-child, .container td[colspan] { grid-column: 1 / -1; }
+}
