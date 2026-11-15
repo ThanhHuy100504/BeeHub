@@ -31,6 +31,38 @@ import { ordersApi, quotesApi } from "@/lib/api";
 import { getOrderStatusLabel, getOrderStatusColor, formatVND, formatDate, cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 
+interface SharedGroupMemberOrder {
+  index: number;
+  id: string;
+  order_number?: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone?: string | null;
+  pickup_address: string;
+  pickup_district?: string;
+  delivery_address: string;
+  delivery_district?: string;
+  total_price: number;
+  deposit_amount: number;
+  deposit_paid: boolean;
+  status: string;
+  scheduled_pickup_time?: string;
+  is_current_order?: boolean;
+}
+
+interface SharedGroupDetail {
+  id: string;
+  group_code: string;
+  scheduled_date: string;
+  max_orders: number;
+  current_orders: number;
+  active_orders_count: number;
+  total_payout: number;
+  status: string;
+  route_summary?: string;
+  orders: SharedGroupMemberOrder[];
+}
+
 interface OrderDetail {
   id: string; provider_id?: string; status: string; quote_request?: boolean; deposit_paid?: boolean;
   pickup_address: string; dropoff_address: string; delivery_address?: string;
@@ -40,7 +72,10 @@ interface OrderDetail {
   requires_helpers?: boolean; number_of_helpers?: number;
   vehicle_size?: string;
   description?: string; dorm_image_urls?: string[];
-  estimated_price?: number; created_at: string;
+  estimated_price?: number; total_price?: number; created_at: string;
+  is_shared?: boolean;
+  shared_move_group_id?: string;
+  shared_group?: SharedGroupDetail;
   customer?: { id: string; full_name: string; phone: string };
 }
 
@@ -249,6 +284,118 @@ export default function ProviderOrderDetailPage() {
           {/* ── Main column ── */}
           <div className="space-y-5">
 {order.provider_id && <OrderLiveTracking orderId={order.id} provider onStatusChange={(status) => setOrder(previous => previous && previous.status !== status ? { ...previous, status } : previous)} />}
+
+            {/* Shared Moving Group — All 3 Student Orders */}
+            {order.shared_group && order.shared_group.orders && order.shared_group.orders.length > 0 && (
+              <Card className="overflow-hidden border-2 border-emerald-500/40 bg-emerald-50/20 shadow-sm">
+                <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white pb-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white">
+                          <Users size={13} /> Chuyến ghép #{order.shared_group.group_code}
+                        </span>
+                        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">
+                          Đã ghép {order.shared_group.active_orders_count}/{order.shared_group.max_orders} người đặt
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          · Ngày hẹn: {order.shared_group.scheduled_date}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-gray-600">
+                        Danh sách đầy đủ tất cả sinh viên đặt trong cùng chuyến ghép này:
+                      </p>
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <span className="text-[11px] font-medium text-gray-500 block">Tổng cước cả chuyến ghép:</span>
+                      <span className="text-lg font-extrabold text-emerald-700">
+                        {formatVND(order.shared_group.total_payout)}
+                      </span>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 space-y-3">
+                  {order.shared_group.orders.map((member) => {
+                    const isCurrent = member.id === order.id;
+                    const mColor = getOrderStatusColor(member.status);
+                    return (
+                      <div
+                        key={member.id}
+                        className={cn(
+                          "rounded-xl border p-3.5 transition-all",
+                          isCurrent
+                            ? "border-2 border-blue-500 bg-blue-50/40 shadow-sm"
+                            : "border-gray-200 bg-white hover:border-emerald-300"
+                        )}
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                "rounded-lg px-2 py-0.5 text-xs font-bold",
+                                isCurrent ? "bg-blue-600 text-white" : "bg-emerald-100 text-emerald-800"
+                              )}
+                            >
+                              Người đặt #{member.index}: {member.customer_name}
+                            </span>
+                            {isCurrent && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                                Đơn đang xem
+                              </span>
+                            )}
+                            {member.order_number && (
+                              <span className="font-mono text-[11px] text-gray-400">
+                                #{member.order_number}
+                              </span>
+                            )}
+                            {member.customer_phone && (
+                              <a
+                                href={`tel:${member.customer_phone}`}
+                                className="inline-flex items-center gap-1 rounded-full bg-green-50 border border-green-200 px-2.5 py-0.5 text-xs font-semibold text-green-700 hover:bg-green-100"
+                              >
+                                <Phone size={11} /> {member.customer_phone}
+                              </a>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            <span
+                              className="rounded-full px-2.5 py-0.5 text-[11px] font-bold"
+                              style={{
+                                backgroundColor: `${mColor}18`,
+                                color: mColor,
+                              }}
+                            >
+                              {getOrderStatusLabel(member.status)}
+                            </span>
+                            <span className="text-sm font-extrabold text-gray-900">
+                              {formatVND(member.total_price)}
+                            </span>
+                            {!isCurrent && (
+                              <Link href={`/orders/${member.id}`}>
+                                <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs border-blue-200 text-blue-600 hover:bg-blue-50">
+                                  Xem đơn này
+                                </Button>
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 grid gap-1.5 text-xs text-gray-600 sm:grid-cols-2 border-t border-gray-100 pt-2">
+                          <p className="truncate">
+                            <span className="font-semibold text-emerald-700">● Điểm lấy:</span> {member.pickup_address}
+                          </p>
+                          <p className="truncate">
+                            <span className="font-semibold text-blue-700">● Điểm giao:</span> {member.delivery_address}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Route */}
             <Card className="overflow-hidden border-gray-100 shadow-sm">
               <CardHeader className="border-b border-gray-100 bg-gradient-to-r from-[#F8FAFC] to-white pb-4">

@@ -23,6 +23,38 @@ import { useUIStore } from "@/lib/stores";
 import { getStoredUser } from "@/lib/auth";
 
 /* ─── Interfaces (unchanged) ──────────────────────────────────── */
+interface SharedGroupMemberOrder {
+  index: number;
+  id: string;
+  order_number?: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone?: string | null;
+  pickup_address: string;
+  pickup_district?: string;
+  delivery_address: string;
+  delivery_district?: string;
+  total_price: number;
+  deposit_amount: number;
+  deposit_paid: boolean;
+  status: string;
+  scheduled_pickup_time?: string;
+  is_current_order?: boolean;
+}
+
+interface SharedGroupDetail {
+  id: string;
+  group_code: string;
+  scheduled_date: string;
+  max_orders: number;
+  current_orders: number;
+  active_orders_count: number;
+  total_payout: number;
+  status: string;
+  route_summary?: string;
+  orders: SharedGroupMemberOrder[];
+}
+
 interface OrderDetail {
   id: string; order_number?: string; status: string; service_type: string; quote_request?: boolean;
   pickup_address: string; dropoff_address: string; delivery_address?: string;
@@ -35,6 +67,7 @@ interface OrderDetail {
   shared_status?: string;
   shared_discount_percent?: number;
   shared_move_group_id?: string;
+  shared_group?: SharedGroupDetail;
   provider?: { id: string; full_name: string; phone: string; rating: number; vehicle_type?: string; total_reviews?: number };
   provider_name?: string;
   my_review?: { id: string; rating: number; comment?: string };
@@ -627,12 +660,19 @@ export default function DonHangDetailPage() {
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
               {/* ── Left column ── */}
               <div className="space-y-4 min-w-0">
-                {order.is_shared && (
-                  <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-white p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white shadow-sm">
-                        🚚 Đơn ghép sinh viên
-                      </span>
+                {(order.is_shared || order.shared_group) && (
+                  <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-white p-4 lg:p-5 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white shadow-sm">
+                          🚚 Đơn ghép sinh viên
+                        </span>
+                        {order.shared_group && (
+                          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-emerald-700 border border-emerald-200">
+                            Nhóm #{order.shared_group.group_code} ({order.shared_group.active_orders_count}/{order.shared_group.max_orders} người đặt)
+                          </span>
+                        )}
+                      </div>
                       <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
                         Tiết kiệm 25% cước phí
                       </span>
@@ -640,8 +680,8 @@ export default function DonHangDetailPage() {
                     <div className="mt-2.5 text-xs text-emerald-900 leading-relaxed space-y-1">
                       <p>
                         <span className="font-bold">Trạng thái ghép: </span>
-                        {order.shared_status === "finding_match" || order.shared_status === "waiting_driver"
-                          ? "Hệ thống đang điều phối tài xế phù hợp nhận chuyến ghép."
+                        {order.shared_status === "waiting_match" || order.shared_status === "finding_match" || order.shared_status === "waiting_driver"
+                          ? "Hệ thống đang điều phối sinh viên cùng tuyến và tài xế nhận chuyến ghép."
                           : order.shared_status === "matched"
                           ? "Đã ghép thành công vào chuyến xe chung. Tài xế đang chuẩn bị."
                           : "Chuyến ghép đang thực hiện lộ trình."}
@@ -650,6 +690,79 @@ export default function DonHangDetailPage() {
                         🛡️ Đơn hàng của bạn có cước phí, tiền cọc và thanh toán hoàn toàn riêng biệt. Mọi vấn đề từ các đơn ghép khác sẽ không ảnh hưởng đến đơn của bạn.
                       </p>
                     </div>
+
+                    {order.shared_group && order.shared_group.orders && order.shared_group.orders.length > 0 && (
+                      <div className="mt-4 border-t border-emerald-200/70 pt-3">
+                        <p className="mb-2.5 text-xs font-bold uppercase tracking-wider text-emerald-800">
+                          Danh sách các đơn trong chuyến ghép ({order.shared_group.orders.length} người đặt):
+                        </p>
+                        <div className="space-y-2.5">
+                          {order.shared_group.orders.map((member) => {
+                            const isMine = member.id === order.id;
+                            const mCfg = STATUS_CFG[member.status] ?? {
+                              label: member.status,
+                              color: "#059669",
+                              bg: "#ECFDF5",
+                            };
+                            return (
+                              <div
+                                key={member.id}
+                                className={cn(
+                                  "rounded-xl border p-3 text-xs transition-all",
+                                  isMine
+                                    ? "border-2 border-emerald-600 bg-white shadow-sm"
+                                    : "border-emerald-100 bg-white/85"
+                                )}
+                              >
+                                <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={cn(
+                                        "rounded-md px-2 py-0.5 text-xs font-bold",
+                                        isMine
+                                          ? "bg-emerald-600 text-white"
+                                          : "bg-gray-100 text-gray-800"
+                                      )}
+                                    >
+                                      Người đặt #{member.index}: {member.customer_name}
+                                    </span>
+                                    {isMine && (
+                                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+                                        Đơn của bạn
+                                      </span>
+                                    )}
+                                    {member.order_number && (
+                                      <span className="font-mono text-[11px] text-gray-400">
+                                        #{member.order_number}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 self-end sm:self-center">
+                                    <span
+                                      className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                                      style={{ color: mCfg.color, backgroundColor: mCfg.bg }}
+                                    >
+                                      {mCfg.label}
+                                    </span>
+                                    <span className="font-extrabold text-gray-900">
+                                      {formatVND(member.total_price)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mt-2 grid gap-1 text-[11px] text-gray-600 sm:grid-cols-2 border-t border-gray-100 pt-1.5">
+                                  <p className="truncate">
+                                    <span className="font-semibold text-emerald-700">● Điểm lấy:</span> {member.pickup_address}
+                                  </p>
+                                  <p className="truncate">
+                                    <span className="font-semibold text-blue-700">● Điểm giao:</span> {member.delivery_address}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 <OrderLiveTracking orderId={order.id} onStatusChange={(status) => setOrder(previous => previous && previous.status !== status ? { ...previous, status } : previous)} />

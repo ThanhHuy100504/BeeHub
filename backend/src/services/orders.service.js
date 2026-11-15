@@ -493,6 +493,74 @@ async function getOrderById(orderId) {
     if (rev) enriched.my_review = rev;
   }
 
+  if (data.shared_move_group_id) {
+    try {
+      const [{ data: groupRow }, { data: groupOrders }] = await Promise.all([
+        supabaseAdmin
+          .from('shared_move_groups')
+          .select('*')
+          .eq('id', data.shared_move_group_id)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            customer_id,
+            pickup_address,
+            pickup_district,
+            delivery_address,
+            delivery_district,
+            total_price,
+            deposit_amount,
+            deposit_paid,
+            status,
+            shared_status,
+            scheduled_pickup_time,
+            created_at,
+            profiles!orders_customer_id_fkey(full_name, phone)
+          `)
+          .eq('shared_move_group_id', data.shared_move_group_id)
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: true }),
+      ]);
+
+      if (groupRow) {
+        const formattedMembers = (groupOrders || []).map((mo, idx) => {
+          const prof = Array.isArray(mo.profiles) ? mo.profiles[0] : mo.profiles;
+          return {
+            index: idx + 1,
+            id: mo.id,
+            order_number: mo.order_number,
+            customer_id: mo.customer_id,
+            customer_name: prof?.full_name || `Sinh viên #${idx + 1}`,
+            customer_phone: prof?.phone || null,
+            pickup_address: mo.pickup_address,
+            pickup_district: mo.pickup_district,
+            delivery_address: mo.delivery_address,
+            delivery_district: mo.delivery_district,
+            total_price: Number(mo.total_price || 0),
+            deposit_amount: Number(mo.deposit_amount || 0),
+            deposit_paid: Boolean(mo.deposit_paid),
+            status: mo.status,
+            shared_status: mo.shared_status,
+            scheduled_pickup_time: mo.scheduled_pickup_time,
+            is_current_order: mo.id === orderId,
+          };
+        });
+
+        enriched.shared_group = {
+          ...groupRow,
+          active_orders_count: formattedMembers.length,
+          total_payout: formattedMembers.reduce((sum, m) => sum + m.total_price, 0),
+          orders: formattedMembers,
+        };
+      }
+    } catch (err) {
+      console.warn('Enrich shared_group warning:', err?.message || err);
+    }
+  }
+
   return enriched;
 }
 
