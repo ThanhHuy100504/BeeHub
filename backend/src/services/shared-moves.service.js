@@ -7,7 +7,7 @@ const { createNotification } = require('./notification.service');
  */
 
 /**
- * Generate unique human-readable group code, e.g. GRP-L10X2K
+ * Generate unique human-readable group code, e.g. GRP-261115-X2K9
  */
 function generateGroupCode() {
   const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -17,6 +17,37 @@ function generateGroupCode() {
   }
   const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
   return `GRP-${dateStr}-${rand}`;
+}
+
+/**
+ * Ensure a provider_profiles row exists for providerId so orders.provider_id FK succeeds.
+ */
+async function ensureProviderProfileExists(providerId) {
+  if (!providerId) return;
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from('provider_profiles')
+      .select('id')
+      .eq('id', providerId)
+      .maybeSingle();
+
+    if (existing?.id) return;
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name')
+      .eq('id', providerId)
+      .maybeSingle();
+
+    await supabaseAdmin.from('provider_profiles').insert({
+      id: providerId,
+      business_name: profile?.full_name || 'Nhà xe đối tác',
+      vehicle_type: 'small_truck',
+      is_available: true,
+    });
+  } catch (err) {
+    console.warn('ensureProviderProfileExists warning:', err?.message || err);
+  }
 }
 
 /**
@@ -31,11 +62,12 @@ async function matchOrCreateGroupForOrder(order) {
       ? order.scheduled_pickup_time.split('T')[0]
       : new Date().toISOString().split('T')[0];
 
-    // 1. Search for an open group with capacity on the same date & city
+    // 1. Search for an open/matched group without a driver yet that still has capacity on the same date & city
     const { data: openGroups } = await supabaseAdmin
       .from('shared_move_groups')
       .select('*')
-      .eq('status', 'open')
+      .in('status', ['open', 'matched'])
+      .is('provider_id', null)
       .eq('scheduled_date', scheduledDate)
       .eq('pickup_city', pickupCity)
       .order('current_orders', { ascending: false })
@@ -44,7 +76,6 @@ async function matchOrCreateGroupForOrder(order) {
     let targetGroup = null;
 
     if (openGroups && openGroups.length > 0) {
-      // Pick group with capacity
       for (const g of openGroups) {
         if ((g.current_orders || 0) < (g.max_orders || 3)) {
           targetGroup = g;
@@ -54,10 +85,8 @@ async function matchOrCreateGroupForOrder(order) {
     }
 
     if (targetGroup) {
-      // Add order to targetGroup
       const newCount = (targetGroup.current_orders || 0) + 1;
-      const isNowMatched = newCount >= 2;
-      const newStatus = newCount >= (targetGroup.max_orders || 3) ? 'matched' : (isNowMatched ? 'matched' : 'open');
+      const newStatus = newCount >= 2 ? 'matched' : 'open';
 
       const routeNote = `Đón: ${targetGroup.pickup_district || ''}, ${order.pickup_district || ''} -> Trả: ${targetGroup.delivery_district || ''}, ${order.delivery_district || ''}`;
 
@@ -67,7 +96,6 @@ async function matchOrCreateGroupForOrder(order) {
           current_orders: newCount,
           status: newStatus,
           route_summary: routeNote,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', targetGroup.id);
 
@@ -81,7 +109,16 @@ async function matchOrCreateGroupForOrder(order) {
         })
         .eq('id', order.id);
 
-      // Notify the customer
+      // Update all existing orders in this group to shared_status = 'matched'
+      await supabaseAdmin
+        .from('orders')
+        .update({
+          shared_status: 'matched',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('shared_move_group_id', targetGroup.id)
+        .neq('status', 'cancelled');
+
       await createNotification(
         order.customer_id,
         'shared_order_matched',
@@ -149,8 +186,8 @@ async function matchOrCreateGroupForOrder(order) {
  */
 async function listAvailableGroupsForProvider(providerId) {
   try {
-    // 1. Groups available to pick up (no driver assigned, status open or matched)
-    const { data: availableGroups, error: err1 } = await supabaseAdmin
+    // 1. Groups available to pick up (no driver assigned, status open, matched, or full)
+    const { data: availableGroups } = await supabaseAdmin
       .from('shared_move_groups')
       .select(`
         id,
@@ -168,12 +205,12 @@ async function listAvailableGroupsForProvider(providerId) {
         route_summary,
         created_at
       `)
-      .in('status', ['open', 'matched'])
+      .in('status', ['open', 'matched', 'full'])
       .is('provider_id', null)
       .order('created_at', { ascending: false });
 
     // 2. Groups assigned to this provider
-    const { data: myGroups, error: err2 } = await supabaseAdmin
+    const { data: myGroups } = await supabaseAdmin
       .from('shared_move_groups')
       .select(`
         id,
@@ -264,8 +301,12 @@ async function listAvailableGroupsForProvider(providerId) {
     };
 
     return {
-      available: (availableGroups || []).map((g) => formatGroup(g, false)),
-      my_groups: (myGroups || []).map((g) => formatGroup(g, true)),
+      available: (availableGroups || [])
+        .map((g) => formatGroup(g, false))
+        .filter((g) => g.active_orders_count > 0),
+      my_groups: (myGroups || [])
+        .map((g) => formatGroup(g, true))
+        .filter((g) => g.active_orders_count > 0),
     };
   } catch (error) {
     console.error('listAvailableGroupsForProvider error:', error);
@@ -281,26 +322,54 @@ async function acceptSharedGroup(groupId, providerId) {
   try {
     const nowIso = new Date().toISOString();
 
-    // 1. Atomic lock: update provider_id if currently null
+    await ensureProviderProfileExists(providerId);
+
+    // 1. Check current group state first
+    const { data: currentGroup, error: fetchErr } = await supabaseAdmin
+      .from('shared_move_groups')
+      .select('*')
+      .eq('id', groupId)
+      .maybeSingle();
+
+    if (fetchErr || !currentGroup) {
+      throw Object.assign(new Error('Không tìm thấy nhóm ghép này.'), { status: 404 });
+    }
+
+    // Idempotent check: if this same driver already accepted it, return it
+    if (currentGroup.provider_id === providerId) {
+      return currentGroup;
+    }
+
+    if (currentGroup.provider_id && currentGroup.provider_id !== providerId) {
+      throw Object.assign(new Error('Nhóm ghép này đã được tài xế khác nhận.'), { status: 409 });
+    }
+
+    if (currentGroup.status === 'cancelled' || currentGroup.status === 'completed') {
+      throw Object.assign(new Error('Nhóm ghép này đã kết thúc hoặc bị hủy.'), { status: 400 });
+    }
+
+    // 2. Atomic lock: update provider_id if currently null
     const { data: updatedGroup, error: groupErr } = await supabaseAdmin
       .from('shared_move_groups')
       .update({
         provider_id: providerId,
         status: 'accepted',
         assigned_at: nowIso,
-        updated_at: nowIso,
       })
       .eq('id', groupId)
       .is('provider_id', null)
-      .in('status', ['open', 'matched'])
       .select('*')
       .single();
 
     if (groupErr || !updatedGroup) {
-      throw new Error('Nhóm ghép này đã được tài xế khác nhận hoặc không còn khả dụng.');
+      console.error('acceptSharedGroup update error:', groupErr);
+      throw Object.assign(
+        new Error('Nhóm ghép này đã được tài xế khác nhận hoặc không còn khả dụng.'),
+        { status: 409 },
+      );
     }
 
-    // 2. Update all active pending orders in this group
+    // 3. Update all active orders in this group
     const { data: memberOrders } = await supabaseAdmin
       .from('orders')
       .select('id, customer_id, order_number, status')
@@ -310,7 +379,7 @@ async function acceptSharedGroup(groupId, providerId) {
     if (memberOrders && memberOrders.length > 0) {
       const orderIds = memberOrders.map((o) => o.id);
 
-      await supabaseAdmin
+      const { error: orderUpdateErr } = await supabaseAdmin
         .from('orders')
         .update({
           provider_id: providerId,
@@ -321,27 +390,35 @@ async function acceptSharedGroup(groupId, providerId) {
         })
         .in('id', orderIds);
 
+      if (orderUpdateErr) {
+        console.error('acceptSharedGroup memberOrders update error:', orderUpdateErr);
+      }
+
       // Audit logs & Customer notifications
       for (const order of memberOrders) {
-        await supabaseAdmin.from('order_status_history').insert({
-          order_id: order.id,
-          from_status: order.status,
-          to_status: 'accepted',
-          changed_by: providerId,
-          notes: `Tài xế đã nhận chuyến ghép nhóm ${updatedGroup.group_code}`,
-        });
+        try {
+          await supabaseAdmin.from('order_status_history').insert({
+            order_id: order.id,
+            from_status: order.status,
+            to_status: 'accepted',
+            changed_by: providerId,
+            notes: `Tài xế đã nhận chuyến ghép nhóm ${updatedGroup.group_code}`,
+          });
 
-        await createNotification(
-          order.customer_id,
-          'order_accepted',
-          'Tài xế đã nhận chuyến ghép!',
-          `Đơn ghép ${order.order_number || ''} của bạn đã có tài xế nhận chuyến và chuẩn bị khởi hành.`,
-          {
-            actionUrl: `/don-hang/${order.id}`,
-            actionData: { order_id: order.id, group_id: groupId },
-            icon: 'truck',
-          }
-        );
+          await createNotification(
+            order.customer_id,
+            'order_accepted',
+            'Tài xế đã nhận chuyến ghép!',
+            `Đơn ghép ${order.order_number || ''} của bạn đã có tài xế nhận chuyến và chuẩn bị khởi hành.`,
+            {
+              actionUrl: `/don-hang/${order.id}`,
+              actionData: { order_id: order.id, group_id: groupId },
+              icon: 'truck',
+            }
+          );
+        } catch (notifyErr) {
+          console.warn('acceptSharedGroup notify warning:', notifyErr);
+        }
       }
     }
 
@@ -358,6 +435,7 @@ async function acceptSharedGroup(groupId, providerId) {
 async function proposePairOrders(providerId, myOrderId, candidateOrderId) {
   try {
     const nowIso = new Date().toISOString();
+    await ensureProviderProfileExists(providerId);
 
     const { data: orders } = await supabaseAdmin
       .from('orders')
@@ -374,7 +452,6 @@ async function proposePairOrders(providerId, myOrderId, candidateOrderId) {
     let groupId = orderA.shared_move_group_id || orderB.shared_move_group_id;
 
     if (!groupId) {
-      // Create new group
       const groupCode = generateGroupCode();
       const { data: newGroup } = await supabaseAdmin
         .from('shared_move_groups')
@@ -397,7 +474,6 @@ async function proposePairOrders(providerId, myOrderId, candidateOrderId) {
         .single();
       groupId = newGroup.id;
     } else {
-      // Update existing group
       await supabaseAdmin
         .from('shared_move_groups')
         .update({
@@ -409,7 +485,6 @@ async function proposePairOrders(providerId, myOrderId, candidateOrderId) {
         .eq('id', groupId);
     }
 
-    // Link both orders to this group and provider
     await supabaseAdmin
       .from('orders')
       .update({
@@ -433,7 +508,7 @@ async function proposePairOrders(providerId, myOrderId, candidateOrderId) {
 /**
  * Handle order cancellation in a group without breaking other orders.
  */
-async function handleOrderCancellationInGroup(orderId, cancelledBy, reason) {
+async function handleOrderCancellationInGroup(orderId, _cancelledBy, reason) {
   try {
     const { data: order } = await supabaseAdmin
       .from('orders')
@@ -445,7 +520,6 @@ async function handleOrderCancellationInGroup(orderId, cancelledBy, reason) {
 
     const groupId = order.shared_move_group_id;
 
-    // Check remaining active orders in this group
     const { data: remainingOrders } = await supabaseAdmin
       .from('orders')
       .select('id, status')
@@ -456,25 +530,21 @@ async function handleOrderCancellationInGroup(orderId, cancelledBy, reason) {
     const activeCount = remainingOrders ? remainingOrders.length : 0;
 
     if (activeCount === 0) {
-      // If no other orders left in group, cancel the group
       await supabaseAdmin
         .from('shared_move_groups')
         .update({
           status: 'cancelled',
           current_orders: 0,
           notes: `Hủy nhóm do đơn ${orderId} bị hủy: ${reason || ''}`,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', groupId);
     } else {
-      // Other orders continue normally!
       await supabaseAdmin
         .from('shared_move_groups')
         .update({
           current_orders: activeCount,
           status: activeCount >= 2 ? 'matched' : 'open',
           notes: `Đơn ${orderId} đã hủy. Còn lại ${activeCount} đơn tiếp tục hành trình.`,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', groupId);
     }
@@ -653,7 +723,6 @@ async function adminAddOrderToGroup(groupId, orderId) {
       .update({
         current_orders: newCount,
         status: newCount >= 2 ? (group.status === 'open' ? 'matched' : group.status) : group.status,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', groupId);
 
@@ -686,7 +755,6 @@ async function adminRemoveOrderFromGroup(groupId, orderId) {
         .update({
           current_orders: newCount,
           status: newCount >= 2 ? group.status : 'open',
-          updated_at: new Date().toISOString(),
         })
         .eq('id', groupId);
     }
@@ -704,6 +772,7 @@ async function adminRemoveOrderFromGroup(groupId, orderId) {
 async function adminAssignProvider(groupId, providerId) {
   try {
     const nowIso = new Date().toISOString();
+    await ensureProviderProfileExists(providerId);
 
     await supabaseAdmin
       .from('shared_move_groups')
@@ -711,11 +780,9 @@ async function adminAssignProvider(groupId, providerId) {
         provider_id: providerId,
         status: 'accepted',
         assigned_at: nowIso,
-        updated_at: nowIso,
       })
       .eq('id', groupId);
 
-    // Update all member orders
     await supabaseAdmin
       .from('orders')
       .update({
@@ -746,11 +813,9 @@ async function adminCancelGroup(groupId, reason) {
       .update({
         status: 'cancelled',
         notes: reason || 'Admin đã hủy nhóm ghép',
-        updated_at: nowIso,
       })
       .eq('id', groupId);
 
-    // Reset member orders to individual pending or cancelled as desired
     await supabaseAdmin
       .from('orders')
       .update({
@@ -779,4 +844,3 @@ module.exports = {
   adminAssignProvider,
   adminCancelGroup,
 };
-

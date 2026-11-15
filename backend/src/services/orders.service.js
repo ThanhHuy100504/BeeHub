@@ -413,16 +413,32 @@ async function providerRespond(orderId, providerId, response, declineReason) {
     throw Object.assign(new Error('Khách đã chốt nhà xe khác'), { status: 403 });
   }
 
-  const { error: responseError } = await supabaseAdmin.from('order_provider_responses').insert({
-    order_id: orderId,
-    provider_id: providerId,
-    response,
-    decline_reason: declineReason || null,
-  });
+  const { error: responseError } = await supabaseAdmin
+    .from('order_provider_responses')
+    .upsert(
+      {
+        order_id: orderId,
+        provider_id: providerId,
+        response,
+        decline_reason: declineReason || null,
+      },
+      { onConflict: 'order_id,provider_id' },
+    );
 
   if (responseError) throw Object.assign(new Error(responseError.message), { status: 400 });
 
   if (response === 'accepted') {
+    if (order.shared_move_group_id) {
+      const sharedMovesService = require('./shared-moves.service');
+      await sharedMovesService.acceptSharedGroup(order.shared_move_group_id, providerId);
+      const { data: updatedSharedOrder } = await supabaseAdmin
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+      return enrichOrderWithProvider(updatedSharedOrder || order);
+    }
+
     const { data, error } = await supabaseAdmin
       .from('orders')
       .update({
@@ -485,26 +501,40 @@ async function acceptOrder(orderId, providerId) {
   await checkProviderBan(providerId);
   const { data: order, error: fetchErr } = await supabaseAdmin
     .from('orders')
-    .select('id, status, provider_id')
+    .select('id, status, provider_id, shared_move_group_id')
     .eq('id', orderId)
     .maybeSingle();
 
   if (fetchErr) throw Object.assign(new Error(fetchErr.message), { status: 500 });
   if (!order) throw Object.assign(new Error('Không tìm thấy đơn hàng'), { status: 404 });
-  if (order.status !== 'pending')
+  if (order.status !== 'pending' && order.status !== 'matched')
     throw Object.assign(new Error('Đơn hàng không còn ở trạng thái chờ nhận'), { status: 409 });
 
-  await supabaseAdmin.from('order_provider_responses').insert({
-    order_id: orderId,
-    provider_id: providerId,
-    response: 'accepted',
-  });
+  await supabaseAdmin.from('order_provider_responses').upsert(
+    {
+      order_id: orderId,
+      provider_id: providerId,
+      response: 'accepted',
+    },
+    { onConflict: 'order_id,provider_id' },
+  );
+
+  if (order.shared_move_group_id) {
+    const sharedMovesService = require('./shared-moves.service');
+    await sharedMovesService.acceptSharedGroup(order.shared_move_group_id, providerId);
+    const { data: updatedShared } = await supabaseAdmin
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+    return enrichOrderWithProvider(updatedShared || order);
+  }
 
   const { data, error } = await supabaseAdmin
     .from('orders')
     .update({ provider_id: providerId, status: 'accepted' })
     .eq('id', orderId)
-    .eq('status', 'pending')
+    .eq('status', order.status)
     .select('*')
     .single();
 
@@ -519,7 +549,7 @@ async function acceptOrder(orderId, providerId) {
 async function startOrder(orderId, providerId) {
   const { data: order, error: fetchErr } = await supabaseAdmin
     .from('orders')
-    .select('id, status, provider_id')
+    .select('id, status, provider_id, shared_move_group_id')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -544,6 +574,14 @@ async function startOrder(orderId, providerId) {
     .single();
 
   if (error) throw Object.assign(new Error(error.message), { status: 500 });
+
+  if (order.shared_move_group_id && (nextStatus === 'picking_up' || nextStatus === 'in_progress')) {
+    await supabaseAdmin
+      .from('shared_move_groups')
+      .update({ status: 'in_progress', started_at: new Date().toISOString() })
+      .eq('id', order.shared_move_group_id);
+  }
+
   await notifyCustomerOrderStatus(data, order.status);
   return data;
 }

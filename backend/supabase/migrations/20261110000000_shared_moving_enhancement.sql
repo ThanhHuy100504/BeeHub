@@ -7,6 +7,7 @@ ALTER TABLE shared_move_groups
     ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW(),
     ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT 'small_truck',
     ADD COLUMN IF NOT EXISTS notes TEXT,
     ADD COLUMN IF NOT EXISTS route_summary TEXT,
@@ -23,4 +24,3 @@ CREATE INDEX IF NOT EXISTS idx_shared_move_groups_provider ON shared_move_groups
 CREATE INDEX IF NOT EXISTS idx_orders_is_shared ON orders(is_shared);
 CREATE INDEX IF NOT EXISTS idx_orders_shared_status ON orders(shared_status);
 CREATE INDEX IF NOT EXISTS idx_orders_shared_move_group_id ON orders(shared_move_group_id);
-
